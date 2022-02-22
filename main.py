@@ -18,6 +18,18 @@ def getVisits():
     url = "https://api.altumview.ca/v1.0/visits"
     headers = {"Authorization": "Bearer " + access_token}
     response = requests.get(url, headers=headers)
-    return response.text
+    return response.json()["data"]["visits"]["array"]
 
-print(getAccessToken())
+adj_list = {}
+
+#Schedule to check visits
+for visit in getVisits():
+    dep_time = visit["departure_time"]
+    id = visit["person"]["id"] #Gets ID instead of name in case multiple people have the same name
+    if len(adj_list) != 0:
+        for person in adj_list:
+            for time in person:
+                if abs(time[0]-dep_time) < 900: #If time difference between two people is less than 900 seconds (15 mins)
+                    adj_list[person].append((id, dep_time))
+
+#Schedule to find links in database
