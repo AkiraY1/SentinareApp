@@ -1,3 +1,4 @@
+from re import L
 import requests, time, datetime, threading
 import streamlit as st
 import pandas as pd
@@ -7,7 +8,6 @@ import matplotlib.pyplot as plt
 id = "tssOCgWHeoFCF6ym"
 secret = "IWI7gfUGRmYvJy83VXZhnik0Dsy6HinMC6GQ2bpawZR7te6GLW8IvBEDsiJPAFZ1"
 access_token = "aa475216f6aae2b0ec911e75d2d28e4d7579ada1"
-base = "https://api.altumview.ca/v1.0/"
 baseOAuth = "https://canada-1.oauth.altumview.com/v1.0/token"
 
 BUFF = 1800 #30 minutes
@@ -24,15 +24,27 @@ def getVisits():
     response = requests.get(url, headers=headers)
     return response.json()["data"]["visits"]["array"]
 
+def getPerson(id):
+    url = f"https://api.altumview.ca/v1.0/peope/{id}"
+    headers = {"Authorization": "Bearer " + access_token}
+    response = requests.get(url, headers=headers)
+    name = response.json()["data"]["person"]["friendly_name"]
+    role = response.json()["data"]["person"]["person_group"]["name"]
+    return name, role
+
 visits = {}
-def logVisits():
+table = pd.DataFrame()
+table.columns = ["Time", "Name", "ID", "Group"]
+
+def logVisits(d):
     for visit in getVisits():
         dep_time = visit["departure_time"]
         id = visit["person"]["id"] #Gets ID instead of name in case multiple people have the same name
-        if id in visits:
-            visits[id].append(dep_time)
-        else:
-            visits[id] = [dep_time]
+        if datetime.datetime(d).timestamp() < dep_time:
+            if id in visits:
+                visits[id].append(dep_time)
+            else:
+                visits[id] = [dep_time]
     print(visits)
 
 def makeGraph(fro, to):
@@ -51,19 +63,37 @@ def in_list(val, val_list):
 def makeNetwork():
     global visits
     global date
-    to = []
+    global table
     fro = []
+    to = []
     if len(visits) > 1:
         val_list = []
-        for val in visits.values():
+        h = visits.values()
+        c = list(visits.keys())
+        for val in h:
             for vis in val:
                 val_list.append(vis)
         for val in val_list:
+            index1 = [(i, visitTime.index(val)) for i, visitTime in enumerate(h) if val in visitTime]
+            visitor1_id = c[index1[0][0]]
+            name1, role1 = getPerson(visitor1_id)
+            
+            new_row = {"Time": datetime.datetime.fromtimestamp(val), "Name": name1, "ID": visitor1_id, "Group": role1}
+            table = table.append(new_row, ignore_index=True)
+
             corresponding_values = in_list(val, val_list) #-1 for none or returns index, use index to find id, use id to connect IDs in to-fro list
             if corresponding_values != []:
-                #Find id of corresponding value
-                ### Use [(i, colour.index(c)) for i, colour in enumerate(colours) if c in colour] to find index
+                for cor_val in corresponding_values:
+                    index2 = [(i, visitTime.index(cor_val)) for i, visitTime in enumerate(h) if cor_val in visitTime]
+                    visitor2_id = c[index2[0][0]]
 
+                    name2, role2 = getPerson(visitor2_id)
+                    new_row = {"Time": datetime.datetime.fromtimestamp(val), "Name": name2, "ID": visitor2_id, "Group": role2}
+                    table = table.append(new_row, ignore_index=True)
+                    
+                    fro.append(visitor1_id)
+                    to.append(visitor2_id)
+        makeGraph(fro, to)
     else:
         st.warning(f"There is only 1 person who has been detected since {date}.")
         makeGraph([1], [1])
@@ -77,15 +107,16 @@ submit = st.sidebar.button('Submit')
 if submit:
     if user_id and user_secret and date:
         #if details check out --------------------------------------------------------
-        logVisits()
+        logVisits(date)
         with st.spinner('Loading...'):
             time.sleep(2)
-        fig = makeNetwork()
-        st.sidebar.success("Success!")
+        if visits != []:
+            makeNetwork()
+            st.sidebar.success("Success!")
+        else:
+            st.warning("No visits during time period selected")
     else:
         st.sidebar.error("Fill all fields.")
-
-
 
 #Need to put entrance and exit
 #Can't restrict time in both directions
